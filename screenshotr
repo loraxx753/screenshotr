@@ -1,0 +1,257 @@
+#!/bin/bash
+
+DEFAULT="\033[39m"
+RED="\033[31m"
+GREEN="\033[32m"
+BLUE="\033[34m"
+YELLOW="\033[33m"
+BLACK=""
+
+BOLD="\033[1m"
+NORMAL="\033[0m"
+
+RESET=$NORMAL$DEFAULT
+
+PRIMARY=${DEFAULT} 
+
+SOURCE=$(dirname ${BASH_SOURCE[0]})
+
+
+# defaults write com.apple.screencapture location $1
+run_setup() {
+	folder_location=$(defaults read com.apple.screencapture location);
+	clear;
+	echo -e "${BLUE}Well Hi there. "
+	echo
+	echo -e "It looks like your screenshots are currently being saved to"
+	echo -e "${BOLD}$folder_location${RESET}${BLUE}. "
+	echo
+	echo -e "If you want to keep that as your screenshot folder, just"
+	echo -e "press [ENTER]. But, if you want to save them to a different"
+	echo -e "folder, type it in here."
+	echo
+	echo -e "For example, if you wanted to save them to a 'screenshots' folder on your Desktop "
+	echo -e "you would type in '${BOLD}~/Desktop/screenshots${RESET}${BLUE}'."
+	echo
+	echo -e "${BOLD}TIPS: you can press <TAB> to complete the rest of a folder name"
+	echo -e "or you can even open a finder window and drag a folder onto the terminal to get "
+	echo -e "up to that folder:${RESET}"
+	echo
+	read -e default_location
+
+	if [ -z $default_location ]; then
+		set_default $folder_location
+		clear;
+		echo 
+		echo -e "${GREEN}We've kept your current folder as ${BOLD}${folder_location}${RESET}${GREEN}, but here"
+		echo -e "are some things you can do with ${BOLD}screenshotr${RESET}"
+		echo
+		cmd_help
+		exit;
+	fi
+
+	default_location=${default_location/#\~/$HOME}
+	clear;
+	echo
+	echo -e "${YELLOW}Checking your folder structure...${RESET}"
+	echo
+	sleep 2;
+
+	IFS='/ ' read -r -a folders <<< "$default_location"
+	folderlist=""
+	to_be_made=""
+	for f in ${folders[*]}
+	do
+		if [ -d ${f} ] && [[ ${f} == ${folders[0]} ]]; then 
+			folderlist="$f"
+		else
+			folderlist="$folderlist/$f"
+		fi
+
+		if [ -d $folderlist ]; then 
+			real_folders=$folderlist
+		else
+			to_be_made=$to_be_made"/"$f
+			not_folders=$folderlist
+		fi
+	done
+
+	if [ ! -z $to_be_made ]; then
+
+		echo -e "${BLUE}These folders already exit: ${BOLD}${real_folders}${RESET}${BLUE}."
+		echo
+
+		echo -e "These subfolders will be made ${BOLD}${to_be_made}${RESET}${BLUE}."
+		sleep 1;
+		echo 
+		echo -e "Is that cool [y/n]?"
+		read -e -n 1
+		echo 
+		echo
+		if [[ $REPLY =~ ^[Yy]$ ]]
+		then
+			echo
+			echo
+			echo -e "${YELLOW}Making Folders...${RESET}"
+			sleep 4;
+			echo
+			mkdir -p $folderlist
+		else
+			echo -e "${RED}Well that sucks. Not much we can do then...${RESET}"
+			exit;
+		fi
+	fi
+
+	set_default $folderlist
+	echo 
+	echo -e "${GREEN}Now that screenshotr is installed, here's what you can do:${RESET}"
+	echo
+	cmd_help
+
+}
+
+cmd_help() {
+	echo -e "Usage: screenshotr <subcommand> [options]\n
+	This is a manager for your mac screenshots. Able to move around folders (hopefully) easily
+
+	Subcommands:
+	${BOLD}open${RESET}                Opens the folder that the screenshots are currently saving to.
+	${BOLD}current${RESET}             Shows you the folder path that the screenshots are being saved to.
+	${BOLD}change${RESET}              Temporarily change where your screenshots are saved.
+	${BOLD}subfolder <path>${RESET}    Saves screenshots into a subfolder of your current chosen folder.
+	${BOLD}reset <default>${RESET}     Either removes the subfolder, or if 'default' is added, changes the
+		            currently saved folder back to the designated default folder."
+
+}
+
+set_default() {
+	config_default_dir="$1"
+	config_current_dir="$1"
+	set_config config_default_dir
+	set_config config_current_dir
+	
+	initialize_folder $1
+}
+sub_subfolder() {
+	mkdir -p $config_current_dir"/"$1
+	config_sub_dir="$1"
+	set_config config_sub_dir
+	initialize_folder $config_current_dir"/"$1
+}
+
+sub_reset() {
+	config_sub_dir=""
+	set_config config_sub_dir
+	if [ ! -z $1 ] && [[ $1 == 'default' ]]; then
+		config_current_dir=$config_default_dir
+		set_config config_current_dir
+	fi
+	initialize_folder $config_current_dir
+}
+
+sub_current() {
+	echo -e "You screenshots are being saved to ${BOLD}$config_current_dir/$config_sub_dir${RESET}"
+}
+
+initialize_folder() {
+	echo -e "You are now saving your screenshots to ${BOLD}$1${RESET}"
+	defaults write com.apple.screencapture location $1
+	killall SystemUIServer
+}
+
+sub_change() {
+	new_location=${1/#\~/$HOME}
+	mkdir -p $new_location
+	config_current_dir=$new_location
+	config_sub_dir=""
+	set_config config_sub_dir
+	set_config config_current_dir
+	initialize_folder $config_current_dir
+}
+
+sub_open() {
+    if [ -z $config_sub_dir ]; then
+    	open $config_current_dir
+	else
+    	open $config_current_dir$config_sub_dir
+    fi
+}
+
+sub_update() {
+
+
+}
+get_configs() {
+	filename="${SOURCE}/screenshotr_bin/config.cfg"
+	while read line
+	do
+		var=$(sed -n 's/\(.*\)\=\(.*\)/\1/p' <<< $line)
+		val=$(sed -n 's/\(.*\)\=\(.*\)/\2/p' <<< $line)
+		val=$(sed -n "s/['\"]*\([^\"]*\)['\"]*$/\1/p" <<< $val)
+		printf -v config_${var} '%s' "${val}"
+	    
+	done < "$filename"
+	
+	var=$(sed -n 's/\(.*\)\=\(.*\)/\1/p' <<< $line)
+	val=$(sed -n 's/\(.*\)\=\(.*\)/\2/p' <<< $line)
+	val=$(sed -n "s/['\"]*\([^\"]*\)['\"]*$/\1/p" <<< $val)
+	printf -v config_${var} '%s' "${val}"
+}
+
+set_config() {
+	var="$(echo $1 | sed -n 's/config_//p')"
+	val=${!1}
+
+	new="$var=\"$val\"";
+
+	line=$(grep -n $var ${SOURCE}/screenshotr_bin/config.cfg | cut -f1 -d:)
+	sed -i '' "${line}s#.*#${new}#" ${SOURCE}/screenshotr_bin/config.cfg
+}
+
+set_option() {
+	echo 
+	# shift_parent=0
+	# case $1 in 
+	#     "-d" | "--set-default")
+	# 			set_default
+	#         ;;
+	# 	"-c" | "--change-folder")
+	# 			change_folder $2
+	# 			shift_parent=1
+	# 		;;
+	# 	*)
+	# 	echo "Error: '$1' is not a known argument." >&2
+	# esac
+	# echo $shift_parent;
+}
+
+parse_options() {
+	while [[ $# > 0 ]]
+		do
+		key="$1"
+		if [[ $(type -t sub_$1) == "function" ]]; then 
+			func=$1
+			shift;
+			sub_$func $@
+		elif [[ $1 = \-* ]]; then
+			if [ $(set_option $1 $2) -eq 1 ]; then
+				shift;
+			fi
+		fi
+		shift;
+	done
+	
+}
+
+get_configs
+
+if [ ! $config_default_dir ]; then
+	run_setup
+elif [ $# -eq 0 ]; then
+	cmd_help
+else
+	parse_options $@
+fi
+exit;
+
+
